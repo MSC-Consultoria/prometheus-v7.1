@@ -220,10 +220,12 @@ def render_dashboard():
     # PARTIDAS - Cards visuais
     st.markdown("### 📅 Partidas de Hoje")
     
-    round_1 = schedule.get("round_1", {}).get("matches", [])
+    round_1 = schedule.get("round_1", {})
+    match_date = round_1.get("date", datetime.now().strftime("%Y-%m-%d"))
+    matches = round_1.get("matches", [])
     
-    if round_1:
-        for match in round_1[:8]:
+    if matches:
+        for match in matches[:8]:
             time_str = match.get('time_brt', '12:00')
             if len(time_str) > 5:
                 time_str = time_str[:5]
@@ -232,9 +234,9 @@ def render_dashboard():
             team_b = match.get('team_b', 'TBD')
             match_format = match.get('format', 'Bo3')
             
-            # Countdown
+            # Countdown usando data dinâmica
             try:
-                match_time = datetime.strptime(f"2025-12-10 {time_str}", "%Y-%m-%d %H:%M")
+                match_time = datetime.strptime(f"{match_date} {time_str}", "%Y-%m-%d %H:%M")
                 match_time = sp_tz.localize(match_time)
                 hours = (match_time - current_time).total_seconds() / 3600
             except:
@@ -351,32 +353,41 @@ def render_dreamleague():
     
     # TAB 1 - PARTIDAS (Mobile cards)
     with tab1:
-        round_1 = schedule.get("round_1", {}).get("matches", [])
+        round_1 = schedule.get("round_1", {})
+        match_date = round_1.get("date", datetime.now().strftime("%Y-%m-%d"))
+        matches = round_1.get("matches", [])
         
-        if not round_1:
+        st.markdown(f"**📆 {match_date}** - DreamLeague S27")
+        
+        if not matches:
             st.info("📭 Nenhuma partida")
         else:
-            for match in round_1[:10]:
+            for match in matches[:12]:
                 time_str = match.get('time_brt', '12:00')
                 if len(time_str) > 5:
                     time_str = time_str[:5]
                 
                 team_a = match.get("team_a", "TBD")
                 team_b = match.get("team_b", "TBD")
+                match_format = match.get("format", "Bo3")
+                match_status = match.get("status", "scheduled")
                 
-                # Countdown
+                # Countdown usando data do schedule
                 try:
-                    match_time = datetime.strptime(f"2025-12-10 {time_str}", "%Y-%m-%d %H:%M")
+                    match_time = datetime.strptime(f"{match_date} {time_str}", "%Y-%m-%d %H:%M")
                     match_time = sp_tz.localize(match_time)
                     hours = (match_time - current_time).total_seconds() / 3600
                 except:
                     hours = 99
                 
-                if hours <= 0:
+                if match_status == "live" or hours <= 0:
                     status = "🔴 LIVE"
                     border = "#ff4444"
-                elif hours <= 2:
-                    status = f"⚠️ {int(hours*60)}min" if hours < 1 else f"🟡 {hours:.1f}h"
+                elif hours <= 1:
+                    status = f"⚠️ {int(hours*60)}min"
+                    border = "#ffaa00"
+                elif hours <= 3:
+                    status = f"🟡 {hours:.1f}h"
                     border = "#ffaa00"
                 else:
                     status = f"🟢 {hours:.1f}h"
@@ -386,18 +397,19 @@ def render_dreamleague():
                 <div style='background: #1a1a2e; padding: 12px; border-radius: 8px; 
                             margin: 6px 0; border-left: 3px solid {border};'>
                     <div style='display: flex; justify-content: space-between;'>
-                        <span style='font-size: 12px; color: #888;'>🕐 {time_str}</span>
+                        <span style='font-size: 12px; color: #888;'>🕐 {time_str} BRT</span>
                         <span style='font-weight: bold; color: {border};'>{status}</span>
                     </div>
                     <div style='text-align: center; padding: 8px 0; font-size: 15px;'>
                         <b>{team_a}</b> <span style='color: #666;'>vs</span> <b>{team_b}</b>
                     </div>
+                    <div style='text-align: center; font-size: 11px; color: #666;'>{match_format}</div>
                 </div>
                 """, unsafe_allow_html=True)
     
-    # TAB 2 - TIMES (Mobile cards)
+    # TAB 2 - TIMES (Mobile cards) com Stats Detalhados
     with tab2:
-        st.markdown("### 👥 Times")
+        st.markdown("### 👥 Times DreamLeague S27")
         
         pro_map = {t.get("team_id"): t for t in pro_teams.get("teams", [])}
         tier_filter = st.selectbox("Tier", ["Todos", "S", "A", "B", "C"], key="tier_dl")
@@ -410,90 +422,275 @@ def render_dreamleague():
             tier_color = {"S": "#9b59b6", "A": "#3498db", "B": "#2ecc71", "C": "#95a5a6"}.get(tier, "#95a5a6")
             pro_data = pro_map.get(team.get("team_id"), {})
             recent = pro_data.get("recent_stats", {}) if pro_data else {}
+            current_roster = pro_data.get("current_roster", []) if pro_data else []
             
+            # Card do time
             st.markdown(f"""
             <div style='background: #1a1a2e; padding: 12px; border-radius: 8px; 
                         margin: 6px 0; border-left: 3px solid {tier_color};'>
                 <div style='display: flex; justify-content: space-between; align-items: center;'>
-                    <span style='font-weight: bold;'>{team.get('name')}</span>
+                    <span style='font-weight: bold; font-size: 16px;'>{team.get('name')}</span>
                     <span style='background: {tier_color}; padding: 2px 8px; border-radius: 4px; 
                                  font-size: 11px;'>Tier {tier}</span>
                 </div>
                 <div style='font-size: 12px; color: #888; margin-top: 4px;'>
-                    {team.get('region', 'EU')} • WR: {recent.get('winrate', 'N/A')}%
+                    🌍 {team.get('region', 'EU')} • 📊 WR: {recent.get('winrate', 'N/A')}% • 
+                    🏆 #{team.get('ranking', '?')} • ⏱️ {recent.get('avg_duration_min', 'N/A')}min avg
                 </div>
             </div>
             """, unsafe_allow_html=True)
             
-            with st.expander(f"👥 {team.get('tag', '')} Roster"):
-                for i, player in enumerate(team.get("roster", [])[:5]):
-                    role = ["Carry", "Mid", "Offlane", "Soft", "Hard"][i] if i < 5 else "Sub"
-                    st.write(f"**{i+1}.** {player.get('name')} - {role}")
+            # Expander com detalhes do roster
+            with st.expander(f"👥 {team.get('tag', '')} - Ver Jogadores & Stats"):
+                roles = ["⚔️ Carry", "🎯 Mid", "🛡️ Offlane", "💫 Soft Sup", "❤️ Hard Sup"]
+                
+                # Mapear jogadores do pro_teams com roster do DL
+                roster_basic = team.get("roster", [])
+                
+                for i, player_basic in enumerate(roster_basic[:5]):
+                    player_name = player_basic.get("name", "Unknown")
+                    role = roles[i] if i < 5 else "🎮 Sub"
+                    
+                    # Buscar stats detalhados do jogador no pro_data
+                    player_stats = None
+                    for p in current_roster:
+                        if p.get("name", "").lower() == player_name.lower():
+                            player_stats = p
+                            break
+                    
+                    if player_stats:
+                        games = player_stats.get("games_played", 0)
+                        wins = player_stats.get("wins", 0)
+                        wr = player_stats.get("winrate", 0)
+                        
+                        st.markdown(f"""
+                        <div style='background: #252540; padding: 10px; border-radius: 6px; margin: 4px 0;'>
+                            <div style='display: flex; justify-content: space-between;'>
+                                <span><b>{role}</b> {player_name}</span>
+                                <span style='color: #4CAF50;'>{wr}% WR</span>
+                            </div>
+                            <div style='font-size: 11px; color: #888; margin-top: 4px;'>
+                                🎮 {games} jogos • ✅ {wins} vitórias
+                            </div>
+                        </div>
+                        """, unsafe_allow_html=True)
+                    else:
+                        st.markdown(f"""
+                        <div style='background: #252540; padding: 10px; border-radius: 6px; margin: 4px 0;'>
+                            <span><b>{role}</b> {player_name}</span>
+                        </div>
+                        """, unsafe_allow_html=True)
+                
+                # Stats do time
+                if recent:
+                    st.markdown("---")
+                    st.markdown("**📈 Stats do Time (100 jogos)**")
+                    col1, col2, col3 = st.columns(3)
+                    with col1:
+                        st.metric("Vitórias", recent.get("wins", 0))
+                    with col2:
+                        st.metric("Derrotas", recent.get("losses", 0))
+                    with col3:
+                        st.metric("Win Rate", f"{recent.get('winrate', 0)}%")
     
-    # TAB 3 - ODDS (Mobile)
+    # TAB 3 - ODDS (Mobile) com Parser de Arquivos Rivalry
     with tab3:
-        st.markdown("### 💰 Odds")
+        st.markdown("### 💰 Odds - Rivalry")
         
-        team_names = [t.get("name") for t in teams]
+        # Carregar odds dos arquivos .txt
+        odds_dir = Path(__file__).parent / "Oddds"
+        odds_files = list(odds_dir.glob("*.txt")) if odds_dir.exists() else []
         
-        t_a = st.selectbox("Time A", team_names, key="odds_a")
-        odd_a = st.number_input("Odd A", min_value=1.01, value=1.50, key="val_a")
-        
-        t_b = st.selectbox("Time B", [t for t in team_names if t != t_a], key="odds_b")
-        odd_b = st.number_input("Odd B", min_value=1.01, value=2.50, key="val_b")
-        
-        bookie = st.selectbox("Casa", ["bet365", "Betano", "Pinnacle", "Stake"], key="bm")
-        
-        if st.button("💾 Salvar"):
-            st.success(f"✅ {t_a} @{odd_a} vs {t_b} @{odd_b}")
+        if odds_files:
+            st.markdown("**📋 Odds Disponíveis (Rivalry)**")
+            
+            for odds_file in odds_files:
+                try:
+                    content = odds_file.read_text(encoding='utf-8')
+                    lines = content.strip().split('\n')
+                    
+                    # Parser simples para extrair times e odds principais
+                    team_a, team_b = None, None
+                    odd_a, odd_b = None, None
+                    tips = []
+                    
+                    for i, line in enumerate(lines):
+                        line = line.strip()
+                        if 'Team Spirit' in line: team_a = 'Team Spirit'
+                        elif 'Team Liquid' in line: team_a = 'Team Liquid'
+                        elif 'Team OG' in line or line == 'Team OG': team_a = 'OG'
+                        elif 'OG' == line: team_a = 'OG'
+                        elif 'BetBoom' in line: team_a = 'BetBoom Team'
+                        
+                        if '1win' in line: team_b = '1win'
+                        elif 'Nemesis' in line: team_b = 'Team Nemesis'
+                        elif 'Tidebound' in line: team_b = 'Team Tidebound'
+                        elif 'Runa' in line: team_b = 'Runa Team'
+                        
+                        # Extrair odds do Vencedor (formato: odd na linha seguinte)
+                        if 'Vencedor' in line and i+2 < len(lines):
+                            try:
+                                odd_a = float(lines[i+1].strip())
+                                odd_b = float(lines[i+2].strip())
+                            except: pass
+                        
+                        if 'Dicas de Especialista' in line and i+1 < len(lines):
+                            tips.append(lines[i+1].strip())
+                    
+                    if team_a and team_b and odd_a and odd_b:
+                        impl_a = 100/odd_a
+                        impl_b = 100/odd_b
+                        
+                        st.markdown(f"""
+                        <div style='background: #1a1a2e; padding: 12px; border-radius: 8px; margin: 8px 0;'>
+                            <div style='text-align: center; margin-bottom: 8px;'>
+                                <b>{team_a}</b> vs <b>{team_b}</b>
+                            </div>
+                            <div style='display: flex; justify-content: space-around; text-align: center;'>
+                                <div>
+                                    <div style='font-size: 20px; color: #4CAF50;'>{odd_a}</div>
+                                    <div style='font-size: 11px; color: #888;'>{impl_a:.1f}%</div>
+                                </div>
+                                <div style='color: #666;'>vs</div>
+                                <div>
+                                    <div style='font-size: 20px; color: #f44336;'>{odd_b}</div>
+                                    <div style='font-size: 11px; color: #888;'>{impl_b:.1f}%</div>
+                                </div>
+                            </div>
+                        </div>
+                        """, unsafe_allow_html=True)
+                        
+                        if tips:
+                            with st.expander(f"💡 Dicas - {team_a} vs {team_b}"):
+                                for tip in tips[:3]:
+                                    st.caption(f"• {tip}")
+                except Exception as e:
+                    st.caption(f"Erro ao ler {odds_file.name}")
+        else:
+            st.info("📂 Coloque arquivos .txt de odds na pasta 'Oddds/'")
         
         st.markdown("---")
-        st.markdown("##### 🎯 Value Calc")
+        st.markdown("##### 🎯 Calculadora de Value")
         
         col1, col2 = st.columns(2)
         with col1:
-            prob = st.slider("Prob %", 0, 100, 55, key="prob_c")
+            prob = st.slider("Sua Prob %", 0, 100, 55, key="prob_c")
         with col2:
             odd = st.number_input("Odd", min_value=1.01, value=1.80, key="odd_c")
         
         implied = 100 / odd
         value = prob - implied
+        kelly = ((prob/100) * odd - 1) / (odd - 1) * 100 if odd > 1 else 0
+        
         if value > 0:
-            st.success(f"✅ VALUE +{value:.1f}%")
+            st.success(f"✅ VALUE +{value:.1f}% | Kelly: {kelly:.1f}%")
         else:
             st.error(f"❌ No Value {value:.1f}%")
     
-    # TAB 4 - DRAFT (Mobile)
+    # TAB 4 - DRAFT (Mobile) com Session State
     with tab4:
-        st.markdown("### 🎯 Draft")
+        st.markdown("### 🎯 Draft Analyzer")
         
-        heroes = ["Faceless Void", "Phantom Assassin", "Morphling", "Invoker", "Storm Spirit",
-                  "Mars", "Axe", "Tidehunter", "Crystal Maiden", "Lion",
-                  "Earth Spirit", "Tusk", "Rubick", "Snapfire", "Marci"]
+        # Lista expandida de heróis
+        heroes = [
+            "-- Selecione --",
+            # Carries
+            "Faceless Void", "Phantom Assassin", "Morphling", "Terrorblade", "Medusa",
+            "Luna", "Juggernaut", "Lifestealer", "Slark", "Anti-Mage", "Naga Siren", "Spectre", "Drow Ranger",
+            # Mids
+            "Invoker", "Storm Spirit", "Queen of Pain", "Ember Spirit", "Leshrac",
+            "Templar Assassin", "Shadow Fiend", "Puck", "Void Spirit", "Lina", "Kunkka",
+            # Offlaners
+            "Mars", "Axe", "Tidehunter", "Enigma", "Sand King", "Centaur Warrunner",
+            "Beastmaster", "Legion Commander", "Underlord", "Dark Seer", "Pangolier",
+            # Supports
+            "Crystal Maiden", "Lion", "Shadow Shaman", "Oracle", "Io",
+            "Earth Spirit", "Tusk", "Rubick", "Snapfire", "Marci",
+            "Witch Doctor", "Dazzle", "Chen", "Enchantress", "Treant Protector"
+        ]
+        
+        # Inicializar session state para análise
+        if 'draft_analysis' not in st.session_state:
+            st.session_state.draft_analysis = None
         
         col1, col2 = st.columns(2)
         with col1:
-            st.markdown("**Radiant**")
-            rad = [st.selectbox(f"R{i+1}", heroes, key=f"r{i}", index=i%len(heroes)) for i in range(5)]
-        with col2:
-            st.markdown("**Dire**")
-            dire = [st.selectbox(f"D{i+1}", heroes, key=f"d{i}", index=(i+5)%len(heroes)) for i in range(5)]
+            st.markdown("**🟢 Radiant**")
+            rad = []
+            for i in range(5):
+                role = ["Carry", "Mid", "Off", "Sup4", "Sup5"][i]
+                rad.append(st.selectbox(f"{role}", heroes, key=f"rad_{i}"))
         
-        if st.button("🔍 Analisar"):
-            if MODULES_AVAILABLE:
-                analysis = analyze_draft(rad, dire)
-                winner = analysis.get("predicted_winner", "Even")
-                prob = analysis.get("win_probability", {})
-                st.markdown(f"""
-                <div style='background: #1a1a2e; padding: 15px; border-radius: 8px; text-align: center;'>
-                    <div style='font-size: 18px; margin-bottom: 8px;'>🏆 {winner}</div>
-                    <div style='font-size: 14px; color: #888;'>
-                        Radiant {prob.get('radiant', 50)}% | Dire {prob.get('dire', 50)}%
+        with col2:
+            st.markdown("**🔴 Dire**")
+            dire = []
+            for i in range(5):
+                role = ["Carry", "Mid", "Off", "Sup4", "Sup5"][i]
+                dire.append(st.selectbox(f"{role} ", heroes, key=f"dire_{i}"))
+        
+        # Botão de análise
+        if st.button("🔍 Analisar Draft", type="primary", use_container_width=True):
+            rad_valid = [h for h in rad if h != "-- Selecione --"]
+            dire_valid = [h for h in dire if h != "-- Selecione --"]
+            
+            if len(rad_valid) < 3 or len(dire_valid) < 3:
+                st.warning("⚠️ Selecione pelo menos 3 heróis de cada lado")
+            else:
+                try:
+                    from src.draft_analyzer import analyze_draft
+                    analysis = analyze_draft(rad_valid, dire_valid)
+                    st.session_state.draft_analysis = analysis
+                except ImportError:
+                    # Análise simplificada se módulo não disponível
+                    st.session_state.draft_analysis = {
+                        "predicted_winner": "Radiant" if len(rad_valid) > len(dire_valid) else "Dire",
+                        "win_probability": {"radiant": 52, "dire": 48},
+                        "comparison": {},
+                        "analysis_available": False
+                    }
+        
+        # Mostrar resultado da análise
+        if st.session_state.draft_analysis:
+            analysis = st.session_state.draft_analysis
+            winner = analysis.get("predicted_winner", "Even")
+            prob = analysis.get("win_probability", {})
+            rad_prob = prob.get("radiant", 50)
+            dire_prob = prob.get("dire", 50)
+            
+            winner_color = "#4CAF50" if "Radiant" in winner else "#f44336" if "Dire" in winner else "#888"
+            
+            st.markdown("---")
+            st.markdown(f"""
+            <div style='background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%); 
+                        padding: 20px; border-radius: 12px; text-align: center; margin: 10px 0;'>
+                <div style='font-size: 14px; color: #888; margin-bottom: 8px;'>DRAFT WINNER</div>
+                <div style='font-size: 24px; font-weight: bold; color: {winner_color}; margin-bottom: 12px;'>
+                    🏆 {winner}
+                </div>
+                <div style='display: flex; justify-content: space-around; margin-top: 15px;'>
+                    <div style='text-align: center;'>
+                        <div style='font-size: 28px; color: #4CAF50;'>{rad_prob}%</div>
+                        <div style='font-size: 12px; color: #888;'>Radiant</div>
+                    </div>
+                    <div style='text-align: center;'>
+                        <div style='font-size: 28px; color: #f44336;'>{dire_prob}%</div>
+                        <div style='font-size: 12px; color: #888;'>Dire</div>
                     </div>
                 </div>
-                """, unsafe_allow_html=True)
-            else:
-                st.info("📊 Draft Analyzer: Disponível em breve")
+            </div>
+            """, unsafe_allow_html=True)
+            
+            # Detalhes adicionais se disponível
+            comparison = analysis.get("comparison", {})
+            if comparison:
+                with st.expander("📊 Detalhes da Análise"):
+                    for metric, data in comparison.items():
+                        rad_score = data.get('radiant', 5)
+                        dire_score = data.get('dire', 5)
+                        st.write(f"**{metric.capitalize()}**: Radiant {rad_score} | Dire {dire_score}")
+            
+            if not analysis.get("analysis_available", True):
+                st.caption("ℹ️ Análise simplificada - módulo completo indisponível")
 
 
 def render_pro_teams():
