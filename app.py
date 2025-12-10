@@ -556,16 +556,64 @@ def render_analytics_2025():
     
     with tab2:
         st.subheader("🦸 Hero Meta Analysis")
-        st.info("📦 Execute a migração para ver dados de heróis no banco")
         
-        # Try to load from Supabase if connected
-        if USE_DATABASE:
+        # Load from Supabase
+        if USE_DATABASE and supabase_data:
             try:
                 from database import get_supabase_client
                 client = get_supabase_client()
                 if client:
-                    result = client.table("picks_bans_2025")\
-                        .select("hero_id, is_pick")\
+                    # Get hero pick/ban stats using RPC or aggregation
+                    result = client.rpc("get_hero_stats_2025").execute() if hasattr(client, 'rpc') else None
+                    
+                    if not result or not result.data:
+                        # Fallback: sample data
+                        result = client.table("picks_bans_2025")\
+                            .select("hero_id, is_pick")\
+                            .limit(50000)\
+                            .execute()
+                    
+                    if result.data:
+                        import pandas as pd
+                        df = pd.DataFrame(result.data)
+                        
+                        if "hero_id" in df.columns:
+                            picks = df[df["is_pick"] == True].groupby("hero_id").size()
+                            bans = df[df["is_pick"] == False].groupby("hero_id").size()
+                            
+                            hero_stats = pd.DataFrame({
+                                "Picks": picks,
+                                "Bans": bans
+                            }).fillna(0).astype(int)
+                            
+                            hero_stats["Total"] = hero_stats["Picks"] + hero_stats["Bans"]
+                            hero_stats["Pick Rate %"] = (hero_stats["Picks"] / hero_stats["Total"] * 100).round(1)
+                            hero_stats = hero_stats.sort_values("Total", ascending=False).head(30)
+                            
+                            st.dataframe(hero_stats, use_container_width=True)
+                            
+                            # Top picks chart
+                            st.bar_chart(hero_stats["Picks"].head(15))
+                        else:
+                            st.dataframe(df.head(20), use_container_width=True)
+            except Exception as e:
+                st.warning(f"Erro ao carregar heróis: {e}")
+        else:
+            st.info("Conecte ao Supabase para ver análise de heróis")
+    
+    with tab3:
+        st.subheader("👥 Team Performance")
+        
+        # Load from Supabase - get teams from matches
+        if USE_DATABASE and supabase_data:
+            try:
+                from database import get_supabase_client
+                client = get_supabase_client()
+                if client:
+                    # Get radiant/dire team stats
+                    result = client.table("matches_2025")\
+                        .select("radiant_team_id, dire_team_id, radiant_win")\
+                        .not_.is_("radiant_team_id", "null")\
                         .limit(10000)\
                         .execute()
                     
@@ -573,49 +621,39 @@ def render_analytics_2025():
                         import pandas as pd
                         df = pd.DataFrame(result.data)
                         
-                        picks = df[df["is_pick"] == True].groupby("hero_id").size()
-                        bans = df[df["is_pick"] == False].groupby("hero_id").size()
+                        # Count matches per team
+                        radiant_counts = df["radiant_team_id"].value_counts()
+                        dire_counts = df["dire_team_id"].value_counts()
                         
-                        hero_stats = pd.DataFrame({
-                            "Picks": picks,
-                            "Bans": bans
-                        }).fillna(0).astype(int)
+                        # Combine
+                        all_teams = set(radiant_counts.index) | set(dire_counts.index)
+                        team_stats = []
+                        for team_id in all_teams:
+                            rad = radiant_counts.get(team_id, 0)
+                            dire = dire_counts.get(team_id, 0)
+                            # Calculate wins
+                            rad_wins = len(df[(df["radiant_team_id"] == team_id) & (df["radiant_win"] == True)])
+                            dire_wins = len(df[(df["dire_team_id"] == team_id) & (df["radiant_win"] == False)])
+                            total_matches = rad + dire
+                            total_wins = rad_wins + dire_wins
+                            winrate = (total_wins / total_matches * 100) if total_matches > 0 else 0
+                            
+                            team_stats.append({
+                                "Team ID": team_id,
+                                "Matches": total_matches,
+                                "Wins": total_wins,
+                                "Win Rate %": round(winrate, 1)
+                            })
                         
-                        hero_stats["Total"] = hero_stats["Picks"] + hero_stats["Bans"]
-                        hero_stats = hero_stats.sort_values("Total", ascending=False).head(20)
+                        team_df = pd.DataFrame(team_stats).sort_values("Matches", ascending=False).head(30)
+                        st.dataframe(team_df, use_container_width=True)
                         
-                        st.dataframe(hero_stats, use_container_width=True)
+                        # Chart
+                        st.bar_chart(team_df.set_index("Team ID")["Matches"].head(15))
             except Exception as e:
-                st.warning(f"Dados de heróis não disponíveis: {e}")
+                st.warning(f"Erro ao carregar times: {e}")
         else:
-            st.caption("Conecte ao Supabase para ver análise de heróis")
-    
-    with tab3:
-        st.subheader("👥 Team Performance")
-        st.info("📦 Execute a migração para ver dados de times no banco")
-        
-        # Load December teams sample
-        dec_teams_path = Path(__file__).parent / "Database" / "2025" / "202512" / "teams.json"
-        dec_teams = load_json(dec_teams_path)
-        
-        if dec_teams and "by_match" in dec_teams:
-            teams_seen = {}
-            for match_id, team_list in dec_teams["by_match"].items():
-                for t in team_list:
-                    rad_name = t.get("radiant.name")
-                    dire_name = t.get("dire.name")
-                    if rad_name:
-                        teams_seen[rad_name] = teams_seen.get(rad_name, 0) + 1
-                    if dire_name:
-                        teams_seen[dire_name] = teams_seen.get(dire_name, 0) + 1
-            
-            if teams_seen:
-                import pandas as pd
-                df = pd.DataFrame([
-                    {"Time": k, "Partidas (Dez)": v} 
-                    for k, v in sorted(teams_seen.items(), key=lambda x: -x[1])[:20]
-                ])
-                st.dataframe(df, use_container_width=True)
+            st.info("Conecte ao Supabase para ver dados de times")
     
     with tab4:
         st.subheader("📈 Tendências")
