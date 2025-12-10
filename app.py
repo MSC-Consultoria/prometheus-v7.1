@@ -483,8 +483,24 @@ def render_analytics_2025():
     master_data = load_json(master_path)
     
     if not supabase_data and not master_data:
-        st.warning("⚠️ Dados de 2025 não encontrados. Execute a migração primeiro.")
-        st.code("python scripts/migrate_2025_data.py --all")
+        st.warning("⚠️ Dados de 2025 não encontrados.")
+        
+        st.markdown("""
+        ### 🔧 Configure os Secrets no Streamlit Cloud:
+        
+        1. Acesse **Settings** → **Secrets** no painel do Streamlit Cloud
+        2. Adicione:
+        ```toml
+        SUPABASE_URL = "https://gzwkkblksahumnnqlywn.supabase.co"
+        SUPABASE_KEY = "sua_anon_key_aqui"
+        ```
+        3. Salve e aguarde o app reiniciar
+        
+        **Ou localmente:**
+        ```bash
+        python scripts/migrate_2025_data.py --all
+        ```
+        """)
         return
     
     # Summary metrics - prefer Supabase data
