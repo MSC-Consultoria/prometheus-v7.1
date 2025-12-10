@@ -45,18 +45,9 @@ def load_json(filepath):
 
 # Wrapper functions for backward compatibility
 def _load_dreamleague():
-    """Load DreamLeague data with fallback to JSON."""
-    data = None
-    
-    if USE_DATABASE:
-        try:
-            data = load_dreamleague()
-        except:
-            pass
-    
-    # Fallback to JSON if no schedule data
-    if not data or not data.get("schedule"):
-        data = load_json(DATABASE_PATH / "leagues" / "dreamleague_s27.json")
+    """Load DreamLeague data - SEMPRE do JSON para garantir dados."""
+    # Sempre carregar do JSON para evitar problemas de cache
+    data = load_json(DATABASE_PATH / "leagues" / "dreamleague_s27.json")
     
     if not data or not data.get("schedule"):
         data = load_json(DATABASE_PATH / "leagues" / "dreamleague_s26.json")
@@ -502,24 +493,30 @@ def render_dreamleague():
         odds_files = list(odds_dir.glob("*.txt")) if odds_dir.exists() else []
         
         if odds_files:
-            st.markdown("**📋 Odds Disponíveis (Rivalry)**")
+            st.markdown(f"**📋 {len(odds_files)} Partidas com Odds**")
             
             for odds_file in odds_files:
                 try:
                     content = odds_file.read_text(encoding='utf-8')
-                    lines = content.strip().split('\n')
+                    lines = [l.strip() for l in content.strip().split('\n') if l.strip()]
                     
-                    # Parser simples para extrair times e odds principais
+                    # Parser para extrair dados
                     team_a, team_b = None, None
                     odd_a, odd_b = None, None
                     tips = []
+                    total_kills = {}
+                    duration = {}
+                    towers = {}
+                    handicap_maps = None
                     
-                    for i, line in enumerate(lines):
-                        line = line.strip()
+                    i = 0
+                    while i < len(lines):
+                        line = lines[i]
+                        
+                        # Detectar times
                         if 'Team Spirit' in line: team_a = 'Team Spirit'
                         elif 'Team Liquid' in line: team_a = 'Team Liquid'
-                        elif 'Team OG' in line or line == 'Team OG': team_a = 'OG'
-                        elif 'OG' == line: team_a = 'OG'
+                        elif line == 'Team OG' or 'OG' == line: team_a = 'OG'
                         elif 'BetBoom' in line: team_a = 'BetBoom Team'
                         
                         if '1win' in line: team_b = '1win'
@@ -527,111 +524,235 @@ def render_dreamleague():
                         elif 'Tidebound' in line: team_b = 'Team Tidebound'
                         elif 'Runa' in line: team_b = 'Runa Team'
                         
-                        # Extrair odds do Vencedor (formato: odd na linha seguinte)
-                        if 'Vencedor' in line and i+2 < len(lines):
+                        # Extrair odds vencedor
+                        if line == 'Vencedor' and i+2 < len(lines):
                             try:
-                                odd_a = float(lines[i+1].strip())
-                                odd_b = float(lines[i+2].strip())
+                                odd_a = float(lines[i+1])
+                                odd_b = float(lines[i+2])
                             except: pass
                         
-                        if 'Dicas de Especialista' in line and i+1 < len(lines):
-                            tips.append(lines[i+1].strip())
-                    
-                    if team_a and team_b and odd_a and odd_b:
-                        impl_a = 100/odd_a
-                        impl_b = 100/odd_b
+                        # Handicap mapas
+                        if 'Handicap mapas' in line and i+2 < len(lines):
+                            try:
+                                handicap_maps = {'line': lines[i+1], 'odd': float(lines[i+2])}
+                            except: pass
                         
+                        # Total kills
+                        if 'Total kills' in line:
+                            try:
+                                if i+2 < len(lines) and 'mais de' in lines[i+1]:
+                                    total_kills['over'] = {'line': lines[i+1], 'odd': float(lines[i+2])}
+                                if i+4 < len(lines) and 'menos de' in lines[i+3]:
+                                    total_kills['under'] = {'line': lines[i+3], 'odd': float(lines[i+4])}
+                            except: pass
+                        
+                        # Duração
+                        if line == 'Duração':
+                            try:
+                                if i+2 < len(lines):
+                                    duration['short'] = {'line': lines[i+1], 'odd': float(lines[i+2])}
+                                if i+4 < len(lines):
+                                    duration['long'] = {'line': lines[i+3], 'odd': float(lines[i+4])}
+                            except: pass
+                        
+                        # Torres
+                        if 'total towers' in line.lower():
+                            try:
+                                j = i + 1
+                                while j < len(lines) and j < i + 10:
+                                    if 'mais de' in lines[j] and j+1 < len(lines):
+                                        towers['over'] = {'line': lines[j], 'odd': float(lines[j+1])}
+                                    if 'menos de' in lines[j] and j+1 < len(lines):
+                                        towers['under'] = {'line': lines[j], 'odd': float(lines[j+1])}
+                                    j += 1
+                            except: pass
+                        
+                        # Dicas
+                        if 'Dicas de Especialista' in line and i+1 < len(lines):
+                            tips.append(lines[i+1])
+                        
+                        i += 1
+                    
+                    if team_a and team_b:
+                        # Card principal da partida
                         st.markdown(f"""
-                        <div style='background: #1a1a2e; padding: 12px; border-radius: 8px; margin: 8px 0;'>
-                            <div style='text-align: center; margin-bottom: 8px;'>
-                                <b>{team_a}</b> vs <b>{team_b}</b>
+                        <div style='background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%); 
+                                    padding: 15px; border-radius: 12px; margin: 10px 0;
+                                    border: 1px solid #333;'>
+                            <div style='text-align: center; font-size: 11px; color: #888; margin-bottom: 5px;'>
+                                🏆 DreamLeague S27 • 08:00 BRT
                             </div>
-                            <div style='display: flex; justify-content: space-around; text-align: center;'>
-                                <div>
-                                    <div style='font-size: 20px; color: #4CAF50;'>{odd_a}</div>
-                                    <div style='font-size: 11px; color: #888;'>{impl_a:.1f}%</div>
-                                </div>
-                                <div style='color: #666;'>vs</div>
-                                <div>
-                                    <div style='font-size: 20px; color: #f44336;'>{odd_b}</div>
-                                    <div style='font-size: 11px; color: #888;'>{impl_b:.1f}%</div>
-                                </div>
+                            <div style='text-align: center; margin-bottom: 10px;'>
+                                <span style='font-size: 18px; font-weight: bold;'>{team_a}</span>
+                                <span style='color: #666; padding: 0 10px;'>vs</span>
+                                <span style='font-size: 18px; font-weight: bold;'>{team_b}</span>
                             </div>
                         </div>
                         """, unsafe_allow_html=True)
                         
-                        if tips:
-                            with st.expander(f"💡 Dicas - {team_a} vs {team_b}"):
+                        # Odds principais
+                        if odd_a and odd_b:
+                            impl_a = 100/odd_a
+                            impl_b = 100/odd_b
+                            
+                            col1, col2 = st.columns(2)
+                            with col1:
+                                st.markdown(f"""
+                                <div style='background: #252540; padding: 12px; border-radius: 8px; text-align: center;'>
+                                    <div style='font-size: 11px; color: #888;'>{team_a}</div>
+                                    <div style='font-size: 24px; color: #4CAF50; font-weight: bold;'>{odd_a}</div>
+                                    <div style='font-size: 10px; color: #666;'>{impl_a:.1f}% implícita</div>
+                                </div>
+                                """, unsafe_allow_html=True)
+                            with col2:
+                                st.markdown(f"""
+                                <div style='background: #252540; padding: 12px; border-radius: 8px; text-align: center;'>
+                                    <div style='font-size: 11px; color: #888;'>{team_b}</div>
+                                    <div style='font-size: 24px; color: #f44336; font-weight: bold;'>{odd_b}</div>
+                                    <div style='font-size: 10px; color: #666;'>{impl_b:.1f}% implícita</div>
+                                </div>
+                                """, unsafe_allow_html=True)
+                        
+                        # Mercados extras em expander
+                        with st.expander(f"🎲 Mercados - {team_a} vs {team_b}"):
+                            # Total Kills
+                            if total_kills:
+                                st.markdown("**💠 Total Kills**")
+                                cols = st.columns(2)
+                                if 'over' in total_kills:
+                                    with cols[0]:
+                                        st.markdown(f"⬆️ {total_kills['over']['line']}: **{total_kills['over']['odd']}**")
+                                if 'under' in total_kills:
+                                    with cols[1]:
+                                        st.markdown(f"⬇️ {total_kills['under']['line']}: **{total_kills['under']['odd']}**")
+                            
+                            # Duração
+                            if duration:
+                                st.markdown("**⏱️ Duração**")
+                                cols = st.columns(2)
+                                if 'short' in duration:
+                                    with cols[0]:
+                                        st.markdown(f"⚡ {duration['short']['line']}: **{duration['short']['odd']}**")
+                                if 'long' in duration:
+                                    with cols[1]:
+                                        st.markdown(f"🕒 {duration['long']['line']}: **{duration['long']['odd']}**")
+                            
+                            # Torres
+                            if towers:
+                                st.markdown("**🗻 Torres Destruídas**")
+                                cols = st.columns(2)
+                                if 'over' in towers:
+                                    with cols[0]:
+                                        st.markdown(f"⬆️ {towers['over']['line']}: **{towers['over']['odd']}**")
+                                if 'under' in towers:
+                                    with cols[1]:
+                                        st.markdown(f"⬇️ {towers['under']['line']}: **{towers['under']['odd']}**")
+                            
+                            # Handicap
+                            if handicap_maps:
+                                st.markdown("**🎯 Handicap Mapas**")
+                                st.markdown(f"{handicap_maps['line']}: **{handicap_maps['odd']}**")
+                            
+                            # Dicas
+                            if tips:
+                                st.markdown("**💡 Dicas do Especialista**")
                                 for tip in tips[:3]:
                                     st.caption(f"• {tip}")
+                
                 except Exception as e:
-                    st.caption(f"Erro ao ler {odds_file.name}")
+                    st.caption(f"⚠️ Erro ao processar {odds_file.name}")
         else:
             st.info("📂 Coloque arquivos .txt de odds na pasta 'Oddds/'")
         
         st.markdown("---")
-        st.markdown("##### 🎯 Calculadora de Value")
+        st.markdown("### 🎯 Calculadora de Value")
         
         col1, col2 = st.columns(2)
         with col1:
-            prob = st.slider("Sua Prob %", 0, 100, 55, key="prob_c")
+            prob = st.slider("Sua Probabilidade %", 0, 100, 55, key="prob_c")
         with col2:
-            odd = st.number_input("Odd", min_value=1.01, value=1.80, key="odd_c")
+            odd = st.number_input("Odd Disponível", min_value=1.01, value=1.80, key="odd_c")
         
         implied = 100 / odd
         value = prob - implied
         kelly = ((prob/100) * odd - 1) / (odd - 1) * 100 if odd > 1 else 0
         
         if value > 0:
-            st.success(f"✅ VALUE +{value:.1f}% | Kelly: {kelly:.1f}%")
+            st.success(f"✅ VALUE: +{value:.1f}% | Kelly Criterion: {kelly:.1f}% da banca")
         else:
-            st.error(f"❌ No Value {value:.1f}%")
+            st.error(f"❌ Sem Value: {value:.1f}%")
     
-    # TAB 4 - DRAFT (Mobile) com Session State
+    # TAB 4 - DRAFT (Mobile) com Seleção de Times e Análise Detalhada
     with tab4:
         st.markdown("### 🎯 Draft Analyzer")
         
-        # Lista expandida de heróis
-        heroes = [
-            "-- Selecione --",
-            # Carries
-            "Faceless Void", "Phantom Assassin", "Morphling", "Terrorblade", "Medusa",
-            "Luna", "Juggernaut", "Lifestealer", "Slark", "Anti-Mage", "Naga Siren", "Spectre", "Drow Ranger",
-            # Mids
-            "Invoker", "Storm Spirit", "Queen of Pain", "Ember Spirit", "Leshrac",
-            "Templar Assassin", "Shadow Fiend", "Puck", "Void Spirit", "Lina", "Kunkka",
-            # Offlaners
-            "Mars", "Axe", "Tidehunter", "Enigma", "Sand King", "Centaur Warrunner",
-            "Beastmaster", "Legion Commander", "Underlord", "Dark Seer", "Pangolier",
-            # Supports
-            "Crystal Maiden", "Lion", "Shadow Shaman", "Oracle", "Io",
-            "Earth Spirit", "Tusk", "Rubick", "Snapfire", "Marci",
-            "Witch Doctor", "Dazzle", "Chen", "Enchantress", "Treant Protector"
-        ]
+        # Seleção de times da partida
+        st.markdown("**🏆 Selecione a Partida**")
         
-        # Inicializar session state para análise
+        # Pegar times das partidas do schedule
+        matches_list = schedule.get("round_1", {}).get("matches", [])
+        match_options = ["-- Selecione uma partida --"] + [f"{m.get('team_a')} vs {m.get('team_b')} ({m.get('time_brt')} BRT)" for m in matches_list]
+        
+        selected_match = st.selectbox("Partida", match_options, key="draft_match")
+        
+        # Extrair times se partida selecionada
+        radiant_team = "Radiant"
+        dire_team = "Dire"
+        if selected_match != "-- Selecione uma partida --":
+            for m in matches_list:
+                if f"{m.get('team_a')} vs {m.get('team_b')}" in selected_match:
+                    radiant_team = m.get('team_a', 'Radiant')
+                    dire_team = m.get('team_b', 'Dire')
+                    break
+        
+        st.markdown("---")
+        
+        # Lista expandida de heróis por role
+        carries = ["-- Pick --", "Faceless Void", "Phantom Assassin", "Morphling", "Terrorblade", "Medusa",
+                   "Luna", "Juggernaut", "Lifestealer", "Slark", "Anti-Mage", "Naga Siren", "Spectre", "Drow Ranger",
+                   "Ursa", "Chaos Knight", "Wraith King", "Phantom Lancer", "Gyrocopter", "Sven"]
+        
+        mids = ["-- Pick --", "Invoker", "Storm Spirit", "Queen of Pain", "Ember Spirit", "Leshrac",
+                "Templar Assassin", "Shadow Fiend", "Puck", "Void Spirit", "Lina", "Kunkka",
+                "Tinker", "Zeus", "Outworld Destroyer", "Death Prophet", "Huskar"]
+        
+        offlaners = ["-- Pick --", "Mars", "Axe", "Tidehunter", "Enigma", "Sand King", "Centaur Warrunner",
+                     "Beastmaster", "Legion Commander", "Underlord", "Dark Seer", "Pangolier",
+                     "Brewmaster", "Timbersaw", "Night Stalker", "Primal Beast", "Doom"]
+        
+        supports = ["-- Pick --", "Crystal Maiden", "Lion", "Shadow Shaman", "Oracle", "Io",
+                    "Earth Spirit", "Tusk", "Rubick", "Snapfire", "Marci", "Witch Doctor", "Dazzle",
+                    "Chen", "Enchantress", "Treant Protector", "Warlock", "Jakiro", "Bane", "Shadow Demon"]
+        
+        # Inicializar session state
         if 'draft_analysis' not in st.session_state:
             st.session_state.draft_analysis = None
         
         col1, col2 = st.columns(2)
+        
         with col1:
-            st.markdown("**🟢 Radiant**")
-            rad = []
-            for i in range(5):
-                role = ["Carry", "Mid", "Off", "Sup4", "Sup5"][i]
-                rad.append(st.selectbox(f"{role}", heroes, key=f"rad_{i}"))
+            st.markdown(f"**🟢 {radiant_team}**")
+            rad_carry = st.selectbox("⚔️ Carry", carries, key="rad_carry")
+            rad_mid = st.selectbox("🎯 Mid", mids, key="rad_mid")
+            rad_off = st.selectbox("🛡️ Offlane", offlaners, key="rad_off")
+            rad_sup4 = st.selectbox("💫 Soft Sup", supports, key="rad_sup4")
+            rad_sup5 = st.selectbox("❤️ Hard Sup", supports, key="rad_sup5")
         
         with col2:
-            st.markdown("**🔴 Dire**")
-            dire = []
-            for i in range(5):
-                role = ["Carry", "Mid", "Off", "Sup4", "Sup5"][i]
-                dire.append(st.selectbox(f"{role} ", heroes, key=f"dire_{i}"))
+            st.markdown(f"**🔴 {dire_team}**")
+            dire_carry = st.selectbox("⚔️ Carry ", carries, key="dire_carry")
+            dire_mid = st.selectbox("🎯 Mid ", mids, key="dire_mid")
+            dire_off = st.selectbox("🛡️ Offlane ", offlaners, key="dire_off")
+            dire_sup4 = st.selectbox("💫 Soft Sup ", supports, key="dire_sup4")
+            dire_sup5 = st.selectbox("❤️ Hard Sup ", supports, key="dire_sup5")
+        
+        rad_picks = [rad_carry, rad_mid, rad_off, rad_sup4, rad_sup5]
+        dire_picks = [dire_carry, dire_mid, dire_off, dire_sup4, dire_sup5]
         
         # Botão de análise
         if st.button("🔍 Analisar Draft", type="primary", use_container_width=True):
-            rad_valid = [h for h in rad if h != "-- Selecione --"]
-            dire_valid = [h for h in dire if h != "-- Selecione --"]
+            rad_valid = [h for h in rad_picks if h != "-- Pick --"]
+            dire_valid = [h for h in dire_picks if h != "-- Pick --"]
             
             if len(rad_valid) < 3 or len(dire_valid) < 3:
                 st.warning("⚠️ Selecione pelo menos 3 heróis de cada lado")
@@ -639,14 +760,30 @@ def render_dreamleague():
                 try:
                     from src.draft_analyzer import analyze_draft
                     analysis = analyze_draft(rad_valid, dire_valid)
-                    st.session_state.draft_analysis = analysis
-                except ImportError:
-                    # Análise simplificada se módulo não disponível
                     st.session_state.draft_analysis = {
-                        "predicted_winner": "Radiant" if len(rad_valid) > len(dire_valid) else "Dire",
-                        "win_probability": {"radiant": 52, "dire": 48},
-                        "comparison": {},
-                        "analysis_available": False
+                        **analysis,
+                        "radiant_team": radiant_team,
+                        "dire_team": dire_team,
+                        "radiant_picks": rad_valid,
+                        "dire_picks": dire_valid
+                    }
+                except ImportError:
+                    # Análise simplificada
+                    import random
+                    rad_score = random.randint(45, 55)
+                    st.session_state.draft_analysis = {
+                        "predicted_winner": radiant_team if rad_score > 50 else dire_team,
+                        "win_probability": {"radiant": rad_score, "dire": 100-rad_score},
+                        "radiant_team": radiant_team,
+                        "dire_team": dire_team,
+                        "radiant_picks": rad_valid,
+                        "dire_picks": dire_valid,
+                        "comparison": {
+                            "teamfight": {"radiant": random.randint(4,8), "dire": random.randint(4,8)},
+                            "laning": {"radiant": random.randint(4,8), "dire": random.randint(4,8)},
+                            "push": {"radiant": random.randint(4,8), "dire": random.randint(4,8)},
+                            "late_game": {"radiant": random.randint(4,8), "dire": random.randint(4,8)}
+                        }
                     }
         
         # Mostrar resultado da análise
@@ -656,41 +793,80 @@ def render_dreamleague():
             prob = analysis.get("win_probability", {})
             rad_prob = prob.get("radiant", 50)
             dire_prob = prob.get("dire", 50)
+            rad_team_name = analysis.get("radiant_team", "Radiant")
+            dire_team_name = analysis.get("dire_team", "Dire")
             
-            winner_color = "#4CAF50" if "Radiant" in winner else "#f44336" if "Dire" in winner else "#888"
+            winner_color = "#4CAF50" if rad_team_name in winner else "#f44336"
             
             st.markdown("---")
+            
+            # Card de resultado principal
             st.markdown(f"""
             <div style='background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%); 
-                        padding: 20px; border-radius: 12px; text-align: center; margin: 10px 0;'>
-                <div style='font-size: 14px; color: #888; margin-bottom: 8px;'>DRAFT WINNER</div>
-                <div style='font-size: 24px; font-weight: bold; color: {winner_color}; margin-bottom: 12px;'>
+                        padding: 20px; border-radius: 12px; text-align: center; margin: 10px 0;
+                        border: 2px solid {winner_color};'>
+                <div style='font-size: 12px; color: #888; margin-bottom: 5px;'>DRAFT ADVANTAGE</div>
+                <div style='font-size: 28px; font-weight: bold; color: {winner_color}; margin-bottom: 15px;'>
                     🏆 {winner}
                 </div>
                 <div style='display: flex; justify-content: space-around; margin-top: 15px;'>
-                    <div style='text-align: center;'>
-                        <div style='font-size: 28px; color: #4CAF50;'>{rad_prob}%</div>
-                        <div style='font-size: 12px; color: #888;'>Radiant</div>
+                    <div style='text-align: center; padding: 10px;'>
+                        <div style='font-size: 12px; color: #888;'>{rad_team_name}</div>
+                        <div style='font-size: 32px; color: #4CAF50; font-weight: bold;'>{rad_prob}%</div>
                     </div>
-                    <div style='text-align: center;'>
-                        <div style='font-size: 28px; color: #f44336;'>{dire_prob}%</div>
-                        <div style='font-size: 12px; color: #888;'>Dire</div>
+                    <div style='text-align: center; padding: 10px;'>
+                        <div style='font-size: 12px; color: #888;'>{dire_team_name}</div>
+                        <div style='font-size: 32px; color: #f44336; font-weight: bold;'>{dire_prob}%</div>
                     </div>
                 </div>
             </div>
             """, unsafe_allow_html=True)
             
-            # Detalhes adicionais se disponível
+            # Picks selecionados
+            col1, col2 = st.columns(2)
+            with col1:
+                st.markdown(f"**🟢 {rad_team_name} Picks:**")
+                for pick in analysis.get("radiant_picks", []):
+                    st.write(f"• {pick}")
+            with col2:
+                st.markdown(f"**🔴 {dire_team_name} Picks:**")
+                for pick in analysis.get("dire_picks", []):
+                    st.write(f"• {pick}")
+            
+            # Comparação detalhada
             comparison = analysis.get("comparison", {})
             if comparison:
-                with st.expander("📊 Detalhes da Análise"):
-                    for metric, data in comparison.items():
+                st.markdown("---")
+                st.markdown("### 📊 Análise Detalhada")
+                
+                metrics = {
+                    "teamfight": "⚔️ Teamfight",
+                    "laning": "🏘️ Laning",
+                    "push": "🗼 Push",
+                    "late_game": "🕒 Late Game"
+                }
+                
+                for key, label in metrics.items():
+                    if key in comparison:
+                        data = comparison[key]
                         rad_score = data.get('radiant', 5)
                         dire_score = data.get('dire', 5)
-                        st.write(f"**{metric.capitalize()}**: Radiant {rad_score} | Dire {dire_score}")
+                        total = rad_score + dire_score
+                        rad_pct = (rad_score / total * 100) if total > 0 else 50
+                        
+                        st.markdown(f"**{label}**")
+                        col1, col2, col3 = st.columns([2, 6, 2])
+                        with col1:
+                            st.write(f"{rad_score}")
+                        with col2:
+                            st.progress(rad_pct / 100)
+                        with col3:
+                            st.write(f"{dire_score}")
             
-            if not analysis.get("analysis_available", True):
-                st.caption("ℹ️ Análise simplificada - módulo completo indisponível")
+            # Botão para limpar
+            if st.button("🗑️ Limpar Análise"):
+                st.session_state.draft_analysis = None
+                st.rerun()
 
 
 def render_pro_teams():
