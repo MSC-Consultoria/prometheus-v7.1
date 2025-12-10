@@ -80,8 +80,17 @@ def main():
     
     page = st.sidebar.radio(
         "Navegação",
-        ["🏠 Dashboard", "🏆 DreamLeague S27", "👥 Pro Teams", "🎮 Pro Players", "📊 Analytics 2025", "📅 Eventos", "💰 Apostas"]
+        ["🏠 Dashboard", "🎯 Match Hub", "🏆 DreamLeague S27", "👥 Pro Teams", "🎮 Pro Players", "📊 Analytics 2025", "📅 Eventos", "💰 Apostas"]
     )
+    
+    st.sidebar.markdown("---")
+    
+    # Live clock GMT-3 (São Paulo)
+    import pytz
+    sp_tz = pytz.timezone('America/Sao_Paulo')
+    current_time = datetime.now(sp_tz)
+    st.sidebar.markdown(f"### 🕐 {current_time.strftime('%H:%M:%S')}")
+    st.sidebar.caption(f"📅 {current_time.strftime('%d/%m/%Y')} (GMT-3)")
     
     st.sidebar.markdown("---")
     
@@ -91,8 +100,7 @@ def main():
     else:
         st.sidebar.caption("📊 🟡 JSON (Local)")
     
-    st.sidebar.caption(f"📅 {datetime.now().strftime('%d/%m/%Y %H:%M')}")
-    st.sidebar.caption("🔗 Data: OpenDota API")
+    st.sidebar.caption("🔗 Data: OpenDota API + Steam")
     
     # Refresh button
     if USE_DATABASE:
@@ -103,6 +111,8 @@ def main():
     # Main Content
     if page == "🏠 Dashboard":
         render_dashboard()
+    elif page == "🎯 Match Hub":
+        render_match_hub()
     elif page == "🏆 DreamLeague S27":
         render_dreamleague()
     elif page == "👥 Pro Teams":
@@ -449,6 +459,324 @@ def render_bets():
         
         if submitted:
             st.success(f"✅ Aposta registrada: {selection} @ {odds}")
+
+
+def render_match_hub():
+    """Render Match Hub - Live tracking and match previews."""
+    st.title("🎯 Match Hub")
+    st.subheader("DreamLeague Season 27 - Live Tracking")
+    
+    # Import analytics
+    try:
+        from src.analytics import (
+            generate_match_preview, get_dreamleague_teams_analysis,
+            get_dreamleague_schedule, calculate_team_form, get_team_hero_pool
+        )
+        from src.hero_mapper import get_hero_name, get_hero_image_url
+        ANALYTICS_AVAILABLE = True
+    except ImportError as e:
+        st.warning(f"Analytics module not available: {e}")
+        ANALYTICS_AVAILABLE = False
+    
+    # Live clock with auto-refresh info
+    import pytz
+    sp_tz = pytz.timezone('America/Sao_Paulo')
+    current_time = datetime.now(sp_tz)
+    
+    col1, col2, col3 = st.columns([2, 1, 1])
+    with col1:
+        st.markdown(f"### ⏰ {current_time.strftime('%H:%M:%S')} BRT")
+    with col2:
+        st.markdown(f"📅 **{current_time.strftime('%d/%m/%Y')}**")
+    with col3:
+        if st.button("🔄 Refresh"):
+            st.rerun()
+    
+    st.markdown("---")
+    
+    # Tabs
+    tab1, tab2, tab3, tab4 = st.tabs(["📺 Live Now", "📅 Schedule", "🔍 Match Preview", "📊 Team Rankings"])
+    
+    with tab1:
+        render_live_matches()
+    
+    with tab2:
+        if ANALYTICS_AVAILABLE:
+            render_schedule()
+        else:
+            st.info("Schedule not available")
+    
+    with tab3:
+        if ANALYTICS_AVAILABLE:
+            render_match_preview_tab()
+        else:
+            st.info("Match preview not available")
+    
+    with tab4:
+        if ANALYTICS_AVAILABLE:
+            render_team_rankings()
+        else:
+            st.info("Team rankings not available")
+
+
+def render_live_matches():
+    """Render live matches section."""
+    st.subheader("📺 Live Matches")
+    
+    try:
+        from src.steam_api import get_all_live_pro_matches, get_dreamleague_live
+        from src.hero_mapper import get_hero_name
+        
+        # Check for live DreamLeague matches first
+        dl_live = get_dreamleague_live()
+        
+        if dl_live:
+            st.success(f"🔴 **{len(dl_live)} DreamLeague match(es) LIVE!**")
+            
+            for game in dl_live:
+                with st.container():
+                    col1, col2, col3, col4, col5 = st.columns([2, 1, 1, 1, 2])
+                    
+                    with col1:
+                        st.markdown(f"**{game['radiant_team']['name']}**")
+                        st.caption(f"Series: {game['radiant_team']['score']}")
+                    
+                    with col2:
+                        st.metric("Kills", game.get('radiant_score', 0))
+                    
+                    with col3:
+                        st.markdown(f"### {game.get('game_time_formatted', '0:00')}")
+                        st.caption("vs")
+                    
+                    with col4:
+                        st.metric("Kills", game.get('dire_score', 0))
+                    
+                    with col5:
+                        st.markdown(f"**{game['dire_team']['name']}**")
+                        st.caption(f"Series: {game['dire_team']['score']}")
+                    
+                    # Gold advantage
+                    gold_adv = game.get('radiant_gold_adv', 0)
+                    if gold_adv > 0:
+                        st.progress(min(0.5 + gold_adv / 20000, 1.0), text=f"Radiant +{gold_adv:,}g")
+                    else:
+                        st.progress(max(0.5 + gold_adv / 20000, 0.0), text=f"Dire +{abs(gold_adv):,}g")
+                    
+                    # Draft
+                    with st.expander("📋 Draft"):
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            st.write("**Radiant Picks:**")
+                            picks = [get_hero_name(h) for h in game.get('radiant_picks', [])]
+                            st.write(", ".join(picks) if picks else "Draft in progress...")
+                        with col2:
+                            st.write("**Dire Picks:**")
+                            picks = [get_hero_name(h) for h in game.get('dire_picks', [])]
+                            st.write(", ".join(picks) if picks else "Draft in progress...")
+                    
+                    st.markdown("---")
+        else:
+            st.info("🔵 No live DreamLeague matches at the moment")
+            
+            # Check all pro matches
+            all_live = get_all_live_pro_matches()
+            if all_live:
+                st.caption(f"Other live pro matches: {len(all_live)}")
+                for game in all_live[:3]:
+                    st.write(f"• {game['radiant_team']['name']} vs {game['dire_team']['name']} - {game.get('game_time_formatted', '0:00')}")
+            else:
+                st.caption("No live pro matches right now")
+    
+    except ImportError:
+        st.warning("Steam API module not available")
+        st.info("Install with: pip install requests")
+    except Exception as e:
+        st.error(f"Error fetching live matches: {e}")
+
+
+def render_schedule():
+    """Render match schedule."""
+    st.subheader("📅 DreamLeague S27 Schedule")
+    
+    from src.analytics import get_dreamleague_schedule
+    
+    schedule = get_dreamleague_schedule()
+    
+    if not schedule:
+        st.info("No scheduled matches found")
+        return
+    
+    # Group by date
+    from collections import defaultdict
+    by_date = defaultdict(list)
+    for match in schedule:
+        by_date[match.get("date", "TBD")].append(match)
+    
+    for date, matches in sorted(by_date.items()):
+        st.markdown(f"### 📅 {date}")
+        
+        for match in matches:
+            with st.container():
+                col1, col2, col3, col4, col5 = st.columns([1, 2, 1, 2, 1])
+                
+                with col1:
+                    st.write(f"🕐 **{match.get('time_brt', 'TBD')}**")
+                    st.caption(f"{match.get('time_cet', '')} CET")
+                
+                with col2:
+                    st.write(f"**{match.get('team_a', 'TBD')}**")
+                
+                with col3:
+                    st.write("**vs**")
+                    st.caption(match.get('format', 'Bo3'))
+                
+                with col4:
+                    st.write(f"**{match.get('team_b', 'TBD')}**")
+                
+                with col5:
+                    pred = match.get('prediction')
+                    if pred and pred.get('winner'):
+                        conf = pred.get('confidence', 50)
+                        color = "🟢" if conf >= 60 else "🟡"
+                        st.caption(f"{color} {pred['winner'][:10]}")
+                        st.caption(f"{conf:.0f}%")
+                
+                st.markdown("---")
+
+
+def render_match_preview_tab():
+    """Render match preview generator."""
+    st.subheader("🔍 Match Preview Generator")
+    
+    from src.analytics import generate_match_preview, get_team_hero_pool
+    from src.hero_mapper import get_hero_name
+    
+    dl = _load_dreamleague()
+    teams = [t.get("name") for t in dl.get("teams", [])]
+    
+    col1, col2, col3 = st.columns([2, 2, 1])
+    
+    with col1:
+        team_a = st.selectbox("Team A", teams, key="preview_team_a")
+    with col2:
+        team_b = st.selectbox("Team B", [t for t in teams if t != team_a], key="preview_team_b")
+    with col3:
+        match_format = st.selectbox("Format", ["Bo1", "Bo3", "Bo5"], index=1)
+    
+    if st.button("🔍 Generate Preview", type="primary"):
+        with st.spinner("Analyzing..."):
+            preview = generate_match_preview(team_a, team_b, match_format)
+        
+        if "error" in preview:
+            st.error(preview["error"])
+            return
+        
+        # Prediction header
+        pred = preview.get("prediction", {})
+        winner = pred.get("winner", "Unknown")
+        confidence = pred.get("confidence", 50)
+        
+        if confidence >= 65:
+            st.success(f"### 🎯 Predicted Winner: **{winner}** ({confidence:.0f}% confidence)")
+        elif confidence >= 55:
+            st.info(f"### 🎯 Predicted Winner: **{winner}** ({confidence:.0f}% confidence)")
+        else:
+            st.warning(f"### 🎯 Close Match - Slight edge to **{winner}** ({confidence:.0f}%)")
+        
+        # Key factors
+        st.markdown("### 📋 Key Factors")
+        for factor in preview.get("key_factors", []):
+            st.write(f"• {factor}")
+        
+        # Team comparison
+        st.markdown("### 📊 Team Comparison")
+        col1, col2 = st.columns(2)
+        
+        comp = preview.get("team_comparison", {})
+        
+        with col1:
+            ta = comp.get("team_a", {})
+            st.markdown(f"#### {ta.get('name', team_a)}")
+            st.metric("Rating", f"{ta.get('rating', 0):.0f}")
+            form = ta.get("form", {})
+            st.write(f"Form: {form.get('form_tier', '?')}")
+            st.write(f"Recent WR: {form.get('recent_winrate', 0)}%")
+            st.write(f"Top Heroes: {', '.join(ta.get('top_heroes', [])[:3])}")
+        
+        with col2:
+            tb = comp.get("team_b", {})
+            st.markdown(f"#### {tb.get('name', team_b)}")
+            st.metric("Rating", f"{tb.get('rating', 0):.0f}")
+            form = tb.get("form", {})
+            st.write(f"Form: {form.get('form_tier', '?')}")
+            st.write(f"Recent WR: {form.get('recent_winrate', 0)}%")
+            st.write(f"Top Heroes: {', '.join(tb.get('top_heroes', [])[:3])}")
+        
+        # Contested heroes
+        contested = preview.get("contested_heroes", [])
+        if contested:
+            st.markdown("### ⚔️ Contested Heroes")
+            for ch in contested:
+                adv = ch.get("advantage_team", ch.get("advantage", "?"))
+                st.write(f"• **{ch.get('hero', '?')}** - Advantage: {adv} (+{ch.get('winrate_diff', 0):.0f}% WR)")
+        
+        # Betting recommendation
+        betting = preview.get("betting_analysis", {})
+        st.markdown("### 💰 Betting Analysis")
+        st.info(f"**{betting.get('recommendation', 'No recommendation')}**")
+
+
+def render_team_rankings():
+    """Render team rankings with drill-down."""
+    st.subheader("📊 DreamLeague S27 - Team Rankings")
+    
+    from src.analytics import get_dreamleague_teams_analysis
+    from src.hero_mapper import get_hero_name
+    
+    teams = get_dreamleague_teams_analysis()
+    
+    if not teams:
+        st.info("No team data available")
+        return
+    
+    # Summary metrics
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric("Total Teams", len(teams))
+    with col2:
+        avg_rating = sum(t.get("rating", 0) for t in teams) / len(teams) if teams else 0
+        st.metric("Avg Rating", f"{avg_rating:.0f}")
+    with col3:
+        hot_teams = len([t for t in teams if "Hot" in t.get("form", {}).get("form_tier", "")])
+        st.metric("Hot Form", hot_teams)
+    
+    st.markdown("---")
+    
+    # Team list with drill-down
+    for i, team in enumerate(teams):
+        tier_emoji = {"S": "🟣", "A": "🔵", "B": "🟢", "C": "⚪"}.get(team.get("tier", "C"), "⚪")
+        form = team.get("form", {})
+        
+        with st.expander(f"{i+1}. {tier_emoji} **{team.get('name')}** - ⭐ {team.get('rating', 0):.0f} | {form.get('form_tier', '?')}"):
+            col1, col2, col3 = st.columns(3)
+            
+            with col1:
+                st.metric("Rating", f"{team.get('rating', 0):.0f}")
+                st.write(f"🌍 Region: {team.get('region', 'N/A')}")
+            
+            with col2:
+                st.metric("Recent WR", f"{team.get('recent_winrate', 0):.0f}%")
+                st.write(f"📈 Form: {form.get('form_tier', 'Unknown')}")
+            
+            with col3:
+                st.write("🦸 **Top Heroes:**")
+                for hero_id in team.get("top_heroes", [])[:3]:
+                    st.write(f"• {get_hero_name(hero_id)}")
+            
+            # Click to see more details
+            if st.button(f"📊 Full Analysis - {team.get('name')}", key=f"team_detail_{i}"):
+                st.session_state["selected_team"] = team.get("name")
+                st.info(f"Selected: {team.get('name')} - Use Match Preview tab for detailed H2H analysis")
 
 
 def render_analytics_2025():
