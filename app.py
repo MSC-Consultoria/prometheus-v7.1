@@ -80,7 +80,7 @@ def main():
     
     page = st.sidebar.radio(
         "Navegação",
-        ["🏠 Dashboard", "🏆 DreamLeague S27", "👥 Pro Teams", "🎮 Pro Players", "📅 Eventos", "💰 Apostas"]
+        ["🏠 Dashboard", "🏆 DreamLeague S27", "👥 Pro Teams", "🎮 Pro Players", "📊 Analytics 2025", "📅 Eventos", "💰 Apostas"]
     )
     
     st.sidebar.markdown("---")
@@ -109,6 +109,8 @@ def main():
         render_pro_teams()
     elif page == "🎮 Pro Players":
         render_pro_players()
+    elif page == "📊 Analytics 2025":
+        render_analytics_2025()
     elif page == "📅 Eventos":
         render_events()
     elif page == "💰 Apostas":
@@ -447,6 +449,167 @@ def render_bets():
         
         if submitted:
             st.success(f"✅ Aposta registrada: {selection} @ {odds}")
+
+
+def render_analytics_2025():
+    """Render 2025 Analytics Dashboard."""
+    st.title("📊 Analytics 2025")
+    st.subheader("Análise Estatística de 25,672 Partidas Pro")
+    
+    # Load master data
+    master_path = Path(__file__).parent / "Database" / "2025" / "2025_master.json"
+    master_data = load_json(master_path)
+    
+    if not master_data:
+        st.warning("⚠️ Dados de 2025 não encontrados. Execute a migração primeiro.")
+        st.code("python scripts/migrate_2025_data.py --all")
+        return
+    
+    # Summary metrics
+    totals = master_data.get("totals", {})
+    
+    col1, col2, col3, col4, col5 = st.columns(5)
+    with col1:
+        st.metric("🎮 Partidas", f"{totals.get('matches', 0):,}")
+    with col2:
+        st.metric("👥 Players Records", f"{totals.get('players_records', 0):,}")
+    with col3:
+        st.metric("🎯 Picks/Bans", f"{totals.get('picks_bans', 0):,}")
+    with col4:
+        st.metric("🏆 Objetivos", f"{totals.get('objectives', 0):,}")
+    with col5:
+        st.metric("⚔️ Teamfights", f"{totals.get('teamfights', 0):,}")
+    
+    st.markdown("---")
+    
+    # Tabs for different analytics
+    tab1, tab2, tab3, tab4 = st.tabs(["📅 Por Mês", "🦸 Heróis Meta", "👥 Times", "📈 Tendências"])
+    
+    with tab1:
+        st.subheader("📅 Estatísticas por Mês")
+        
+        months_data = master_data.get("months", {})
+        
+        import pandas as pd
+        
+        monthly_stats = []
+        for month, data in months_data.items():
+            summary = data.get("summary", {})
+            monthly_stats.append({
+                "Mês": month,
+                "Partidas": summary.get("total_matches", 0),
+                "Players": summary.get("total_player_records", 0),
+                "Picks/Bans": summary.get("total_picks_bans", 0),
+                "Objetivos": summary.get("total_objectives", 0),
+                "Teamfights": summary.get("total_teamfights", 0),
+                "Chat": summary.get("total_chat_messages", 0)
+            })
+        
+        if monthly_stats:
+            df = pd.DataFrame(monthly_stats)
+            st.dataframe(df, use_container_width=True)
+            
+            # Chart
+            st.bar_chart(df.set_index("Mês")["Partidas"])
+    
+    with tab2:
+        st.subheader("🦸 Hero Meta Analysis")
+        st.info("📦 Execute a migração para ver dados de heróis no banco")
+        
+        # Try to load from Supabase if connected
+        if USE_DATABASE:
+            try:
+                from database import get_supabase_client
+                client = get_supabase_client()
+                if client:
+                    result = client.table("picks_bans_2025")\
+                        .select("hero_id, is_pick")\
+                        .limit(10000)\
+                        .execute()
+                    
+                    if result.data:
+                        import pandas as pd
+                        df = pd.DataFrame(result.data)
+                        
+                        picks = df[df["is_pick"] == True].groupby("hero_id").size()
+                        bans = df[df["is_pick"] == False].groupby("hero_id").size()
+                        
+                        hero_stats = pd.DataFrame({
+                            "Picks": picks,
+                            "Bans": bans
+                        }).fillna(0).astype(int)
+                        
+                        hero_stats["Total"] = hero_stats["Picks"] + hero_stats["Bans"]
+                        hero_stats = hero_stats.sort_values("Total", ascending=False).head(20)
+                        
+                        st.dataframe(hero_stats, use_container_width=True)
+            except Exception as e:
+                st.warning(f"Dados de heróis não disponíveis: {e}")
+        else:
+            st.caption("Conecte ao Supabase para ver análise de heróis")
+    
+    with tab3:
+        st.subheader("👥 Team Performance")
+        st.info("📦 Execute a migração para ver dados de times no banco")
+        
+        # Load December teams sample
+        dec_teams_path = Path(__file__).parent / "Database" / "2025" / "202512" / "teams.json"
+        dec_teams = load_json(dec_teams_path)
+        
+        if dec_teams and "by_match" in dec_teams:
+            teams_seen = {}
+            for match_id, team_list in dec_teams["by_match"].items():
+                for t in team_list:
+                    rad_name = t.get("radiant.name")
+                    dire_name = t.get("dire.name")
+                    if rad_name:
+                        teams_seen[rad_name] = teams_seen.get(rad_name, 0) + 1
+                    if dire_name:
+                        teams_seen[dire_name] = teams_seen.get(dire_name, 0) + 1
+            
+            if teams_seen:
+                import pandas as pd
+                df = pd.DataFrame([
+                    {"Time": k, "Partidas (Dez)": v} 
+                    for k, v in sorted(teams_seen.items(), key=lambda x: -x[1])[:20]
+                ])
+                st.dataframe(df, use_container_width=True)
+    
+    with tab4:
+        st.subheader("📈 Tendências")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.markdown("**📊 Volume de Partidas**")
+            months_data = master_data.get("months", {})
+            matches_by_month = {
+                m: d.get("summary", {}).get("total_matches", 0)
+                for m, d in months_data.items()
+            }
+            
+            import pandas as pd
+            df = pd.DataFrame([
+                {"Mês": k, "Partidas": v}
+                for k, v in matches_by_month.items()
+            ])
+            if not df.empty:
+                st.line_chart(df.set_index("Mês"))
+        
+        with col2:
+            st.markdown("**⚔️ Teamfights por Mês**")
+            tf_by_month = {
+                m: d.get("summary", {}).get("total_teamfights", 0)
+                for m, d in months_data.items()
+            }
+            
+            df_tf = pd.DataFrame([
+                {"Mês": k, "Teamfights": v}
+                for k, v in tf_by_month.items()
+            ])
+            if not df_tf.empty:
+                st.line_chart(df_tf.set_index("Mês"))
+
 
 if __name__ == "__main__":
     main()
